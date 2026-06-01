@@ -2,6 +2,11 @@
 
 import React, { useState } from 'react';
 
+
+import { auth, googleProvider } from '../firebase';
+import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
+import { useRouter } from 'next/navigation'; 
+
 interface LoginModalProps {
   onClose: () => void;
 }
@@ -9,11 +14,35 @@ interface LoginModalProps {
 export default function LoginModal({ onClose }: LoginModalProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const router = useRouter();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Logging in with:', email, password);
-    // Firebase auth logic will go here
+    
+    try {
+      // Tells Firebase to check the database for this user
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      console.log('Successfully logged in:', userCredential.user.email);
+      
+      // Close the modal upon success
+      onClose();
+      router.push('/dashboard');
+    } catch (error: any) {
+      console.error("Login error:", error.message);
+      alert("Invalid email or password. Please try again.");
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      console.log('Successfully signed in with Google:', result.user.email);
+      onClose(); // Close the modal upon success
+      router.push('/dashboard');
+    } catch (error: any) {
+      console.error("Google Sign-In error:", error.message);
+      alert("Failed to sign in with Google. Please try again.");
+    }
   };
 
   return (
@@ -47,7 +76,7 @@ export default function LoginModal({ onClose }: LoginModalProps) {
             </h1>
           </div>
           <p className="text-lg text-white/80 tracking-wide mt-4">
-            <span className="text-[#6366F1] font-medium">Pro</span> version of the pomodoor
+            <span className="text-[#6366F1] font-medium">Pro</span> version of the pomodoro
           </p>
         </div>
 
@@ -114,6 +143,7 @@ export default function LoginModal({ onClose }: LoginModalProps) {
 
             <button 
               type="button"
+              onClick={handleGoogleSignIn}
               className="w-full bg-[#0F172A] hover:bg-black/40 text-white border border-white/10 font-medium text-sm py-3 rounded-lg transition flex items-center justify-center space-x-2 active:scale-[0.98]"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

@@ -1,6 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+
+import { auth, googleProvider } from '../firebase';
+import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
+import { useRouter } from 'next/navigation'; 
 
 interface SignupModalProps {
   onClose: () => void;
@@ -11,14 +16,40 @@ export default function SignupModal({ onClose }: SignupModalProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const router = useRouter();
 
-  const handleSignup = (e: React.FormEvent) => {
+const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password !== confirmPassword) {
       alert("Passwords do not match");
       return;
     }
-    console.log('Registering with:', name, email, password);
+    
+    try {
+      // Tells Firebase to create a new user
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      console.log('Successfully registered:', userCredential.user.email);
+      
+      // Close the modal upon success
+      onClose(); 
+      router.push('/dashboard');
+    } catch (error: any) {
+      console.error("Signup error:", error.message);
+      // Show the user a friendly error (like "Email already in use")
+      alert(error.message); 
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      console.log('Successfully signed in with Google:', result.user.email);
+      onClose(); // Close the modal upon success
+      router.push('/dashboard');
+    } catch (error: any) {
+      console.error("Google Sign-In error:", error.message);
+      alert("Failed to sign in with Google. Please try again.");
+    }
   };
 
   return (
@@ -50,7 +81,7 @@ export default function SignupModal({ onClose }: SignupModalProps) {
             </h1>
           </div>
           <p className="text-lg text-white/80 tracking-wide mt-4">
-            <span className="text-[#6366F1] font-medium">Pro</span> version of the pomodoor
+            <span className="text-[#6366F1] font-medium">Pro</span> version of the pomodoro
           </p>
         </div>
 
@@ -141,6 +172,7 @@ export default function SignupModal({ onClose }: SignupModalProps) {
 
             <button 
               type="button"
+              onClick={handleGoogleSignIn}
               className="w-full bg-[#0F172A] hover:bg-black/40 text-white border border-white/10 font-medium text-sm py-3 rounded-lg transition flex items-center justify-center space-x-2 active:scale-[0.98]"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef } from 'react';
 import SettingsModal from '../components/SettingsModal';
 import ProfileModal from '../components/ProfileModal';
-import { auth, db } from '../firebase'; // Import Firebase config
+import { auth, db } from '../firebase'; 
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore'; // Import Database tools
+import { doc, getDoc, setDoc } from 'firebase/firestore'; 
 
 type Phase = 'focus' | 'revision' | 'break' | 'longRevision' | 'longBreak';
 
@@ -27,9 +27,12 @@ export default function DashboardTimer() {
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // NEW: Multiple Audio Refs for different sounds
+  const chimeRef = useRef<HTMLAudioElement | null>(null);
+  const focusRef = useRef<HTMLAudioElement | null>(null);
+  const revisionRef = useRef<HTMLAudioElement | null>(null);
+  const breakRef = useRef<HTMLAudioElement | null>(null);
 
-  // NEW: Automatically Load User Settings from Database
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -38,12 +41,10 @@ export default function DashboardTimer() {
           const docSnap = await getDoc(docRef);
 
           if (docSnap.exists() && docSnap.data().settings) {
-            // User exists, load their custom settings
             const savedTimes = docSnap.data().settings;
             setTimes(savedTimes);
             setTimeLeft(savedTimes['focus']); 
           } else {
-            // New user, save the defaults to their database profile
             await setDoc(docRef, { settings: DEFAULT_TIMES }, { merge: true });
           }
         } catch (error) {
@@ -55,7 +56,6 @@ export default function DashboardTimer() {
     return () => unsubscribe();
   }, []);
 
-  // Timer Countdown Logic
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     if (isActive && timeLeft > 0) {
@@ -67,24 +67,57 @@ export default function DashboardTimer() {
   }, [isActive, timeLeft]);
 
   const handlePhaseTransition = () => {
-    if (audioRef.current) {
-      audioRef.current.volume = 0.5;
-      audioRef.current.play().catch(e => console.log("Audio block:", e));
-    }
+    let nextPhase: Phase = 'focus';
+
+    // 1. Calculate the upcoming phase
     if (phase === 'focus') {
-      if (loopCount === 4) {
-        setPhase('longRevision'); setTimeLeft(times.longRevision);
-      } else {
-        setPhase('revision'); setTimeLeft(times.revision);
-      }
+      nextPhase = loopCount === 4 ? 'longRevision' : 'revision';
     } else if (phase === 'revision') {
-      setPhase('break'); setTimeLeft(times.break);
+      nextPhase = 'break';
     } else if (phase === 'longRevision') {
-      setPhase('longBreak'); setTimeLeft(times.longBreak);
+      nextPhase = 'longBreak';
     } else if (phase === 'break' || phase === 'longBreak') {
-      setPhase('focus'); setTimeLeft(times.focus);
+      nextPhase = 'focus';
+    }
+
+    // 2. Update all UI states
+    setPhase(nextPhase);
+    setTimeLeft(times[nextPhase]);
+    
+    // If returning to focus after a break, pause the timer and update the cycle count
+    if (nextPhase === 'focus' && (phase === 'break' || phase === 'longBreak')) {
       setLoopCount((prev) => (prev === 4 ? 1 : prev + 1));
-      setIsActive(false);
+      setIsActive(false); 
+    }
+
+    // 3. Audio Chaining Logic
+    if (nextPhase === 'focus') {
+      // Just play Focus audio
+      if (focusRef.current) {
+        focusRef.current.volume = 0.5;
+        focusRef.current.play().catch(e => console.log("Audio block:", e));
+      }
+    } else {
+      // Play Chime first, then chain the next audio when it finishes
+      if (chimeRef.current) {
+        chimeRef.current.volume = 0.5;
+        
+        chimeRef.current.onended = () => {
+          if (nextPhase === 'revision' || nextPhase === 'longRevision') {
+            if (revisionRef.current) {
+              revisionRef.current.volume = 0.5;
+              revisionRef.current.play().catch(e => console.log(e));
+            }
+          } else if (nextPhase === 'break' || nextPhase === 'longBreak') {
+            if (breakRef.current) {
+              breakRef.current.volume = 0.5;
+              breakRef.current.play().catch(e => console.log(e));
+            }
+          }
+        };
+
+        chimeRef.current.play().catch(e => console.log("Audio block:", e));
+      }
     }
   };
 
@@ -127,26 +160,32 @@ export default function DashboardTimer() {
 
   const startTimer = () => {
     setIsActive(true);
-    if (audioRef.current && audioRef.current.paused) {
-        audioRef.current.play().then(() => {
-            audioRef.current?.pause();
-            if (audioRef.current) audioRef.current.currentTime = 0;
+    
+    // NEW: Function to unlock all audio elements at once
+    const unlock = (audio: HTMLAudioElement | null) => {
+      if (audio && audio.paused) {
+        audio.play().then(() => {
+          audio.pause();
+          audio.currentTime = 0;
         }).catch(() => console.log("Audio unlock failed"));
-    }
+      }
+    };
+
+    unlock(chimeRef.current);
+    unlock(focusRef.current);
+    unlock(revisionRef.current);
+    unlock(breakRef.current);
   };
 
   const stopTimer = () => setIsActive(false);
   const resetTimer = () => { setIsActive(false); setTimeLeft(times[phase]); };
 
-  // NEW: Save updated settings directly to Firebase Database
   const handleSaveSettings = async (newTimes: Record<Phase, number>) => {
-    // 1. Update the UI instantly
     setTimes(newTimes);
     if (!isActive) {
       setTimeLeft(newTimes[phase]);
     }
 
-    // 2. Save securely to the database
     const user = auth.currentUser;
     if (user) {
       try {
@@ -188,7 +227,12 @@ export default function DashboardTimer() {
 
   return (
     <div className="min-h-screen bg-[#0F172A] text-white flex flex-col font-sans">
-      <audio ref={audioRef} src="/sounds/chime.mp3" preload="auto" />
+      
+      {/* NEW: 4 distinct audio tags for all sounds */}
+      <audio ref={chimeRef} src="/sounds/chime.mp3" preload="auto" />
+      <audio ref={focusRef} src="/sounds/focus.mp3" preload="auto" />
+      <audio ref={revisionRef} src="/sounds/revision.mp3" preload="auto" />
+      <audio ref={breakRef} src="/sounds/break.mp3" preload="auto" />
 
       <header className="relative z-50 flex justify-between items-center px-8 py-4 bg-[#0A0F1B]">
         <h1 className="text-2xl font-medium tracking-wide">Promodoor</h1>
